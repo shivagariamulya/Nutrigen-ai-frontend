@@ -328,7 +328,7 @@ function Dashboard({ user, setPage }) {
             </div>
 
             {/* Quick Navigation Cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "18px" }}>
                 <div className="card" style={{ background: "linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%)", border: "1px solid #bbf7d0" }}>
                     <div style={{ fontSize: "28px", marginBottom: "8px" }}>📸</div>
                     <h3 style={{ margin: "0 0 6px", color: "#166534" }}>Analyze Food Photo</h3>
@@ -348,6 +348,17 @@ function Dashboard({ user, setPage }) {
                     </p>
                     <button onClick={() => setPage("plan")} style={{ background: "#2563eb", margin: 0 }}>
                         Open Today's Diet Plan
+                    </button>
+                </div>
+
+                <div className="card" style={{ background: "linear-gradient(135deg, #fefce8 0%, #ffffff 100%)", border: "1px solid #fef08a" }}>
+                    <div style={{ fontSize: "28px", marginBottom: "8px" }}>📈</div>
+                    <h3 style={{ margin: "0 0 6px", color: "#854d0e" }}>Analytics & Reports</h3>
+                    <p style={{ margin: "0 0 16px", color: "#475569", fontSize: "14px" }}>
+                        Review weekly and monthly trends, calories burned (TDEE), and export reports.
+                    </p>
+                    <button onClick={() => setPage("reports")} style={{ background: "#ca8a04", margin: 0 }}>
+                        View Nutrition Reports
                     </button>
                 </div>
             </div>
@@ -897,39 +908,118 @@ function Reports({ user }) {
     const [days, setDays] = useState(7);
     const [report, setReport] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    function loadReport(selectedDays) {
+        setLoading(true);
+        setError(null);
+        fetch(API + "/meals/reports/" + user.id + "?days=" + selectedDays)
+            .then(async (r) => {
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({}));
+                    throw new Error(err.message || "Failed to load report (" + r.status + ")");
+                }
+                return r.json();
+            })
+            .then((data) => setReport(data))
+            .catch((err) => {
+                console.error("Report fetch error:", err);
+                setError(err.message || "Unable to load reports from backend");
+            })
+            .finally(() => setLoading(false));
+    }
 
     useEffect(() => {
-        setLoading(true);
-        fetch(API + "/meals/reports/" + user.id + "?days=" + days)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((data) => setReport(data))
-            .catch((err) => console.error(err))
-            .finally(() => setLoading(false));
+        loadReport(days);
     }, [user.id, days]);
+
+    function exportCSV() {
+        if (!report || !report.dailyBreakdown || report.dailyBreakdown.length === 0) return;
+        const headers = ["Date", "Day", "Meals Count", "Calories (kcal)", "Target Calories (kcal)", "Calories Burned (kcal)", "Net Calories (kcal)", "Protein (g)", "Carbohydrates (g)", "Fats (g)"];
+        const rows = report.dailyBreakdown.map((r) => [
+            r.date,
+            r.dayOfWeek,
+            r.mealsCount,
+            r.calories,
+            r.targetCalories,
+            r.caloriesBurned,
+            r.netCalories,
+            r.protein,
+            r.carbohydrates,
+            r.fats
+        ]);
+        const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `nutrigen_report_${report.period.toLowerCase()}_${report.from}_to_${report.to}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
 
     return (
         <section>
-            {/* Toggle View: Weekly (7 Days) vs Monthly (30 Days) */}
-            <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
-                <button
-                    className={days === 7 ? "" : "btn-secondary"}
-                    onClick={() => setDays(7)}
-                    style={{ margin: 0 }}
-                >
-                    📅 7-Day Weekly Report
-                </button>
-                <button
-                    className={days === 30 ? "" : "btn-secondary"}
-                    onClick={() => setDays(30)}
-                    style={{ margin: 0 }}
-                >
-                    📆 30-Day Monthly Trend
-                </button>
+            {/* Header Toolbar: Range Switcher + CSV Export + Refresh */}
+            <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "10px", marginBottom: "20px" }}>
+                <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                        className={days === 7 ? "" : "btn-secondary"}
+                        onClick={() => setDays(7)}
+                        style={{ margin: 0 }}
+                    >
+                        📅 7-Day Weekly
+                    </button>
+                    <button
+                        className={days === 14 ? "" : "btn-secondary"}
+                        onClick={() => setDays(14)}
+                        style={{ margin: 0 }}
+                    >
+                        🗓️ 14-Day Bi-Weekly
+                    </button>
+                    <button
+                        className={days === 30 ? "" : "btn-secondary"}
+                        onClick={() => setDays(30)}
+                        style={{ margin: 0 }}
+                    >
+                        📆 30-Day Monthly
+                    </button>
+                </div>
+
+                <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                        className="btn-secondary"
+                        onClick={() => loadReport(days)}
+                        style={{ margin: 0, padding: "8px 14px", fontSize: "13px" }}
+                    >
+                        🔄 Refresh
+                    </button>
+                    {report && (
+                        <button
+                            onClick={exportCSV}
+                            style={{ margin: 0, padding: "8px 14px", fontSize: "13px", background: "#0284c7" }}
+                        >
+                            📥 Export CSV
+                        </button>
+                    )}
+                </div>
             </div>
 
-            {loading || !report ? (
-                <div className="card">Loading analytics report...</div>
-            ) : (
+            {loading ? (
+                <div className="card" style={{ textAlign: "center", padding: "40px 20px" }}>
+                    <div style={{ fontSize: "28px", marginBottom: "8px" }}>⏳</div>
+                    <p style={{ margin: 0, color: "#64748b" }}>Generating nutrition analytics & metabolic report...</p>
+                </div>
+            ) : error ? (
+                <div className="card" style={{ background: "#fef2f2", border: "1px solid #fecaca", padding: "24px", textAlign: "center" }}>
+                    <div style={{ fontSize: "32px", marginBottom: "8px" }}>⚠️</div>
+                    <h3 style={{ margin: "0 0 8px", color: "#b91c1c" }}>Unable to Load Analytics</h3>
+                    <p style={{ color: "#7f1d1d", margin: "0 0 16px", fontSize: "14px" }}>{error}</p>
+                    <button onClick={() => loadReport(days)} style={{ margin: 0 }}>
+                        🔄 Try Again
+                    </button>
+                </div>
+            ) : report ? (
                 <>
                     {/* Key Metrics Grid */}
                     <div className="grid">
@@ -960,13 +1050,100 @@ function Reports({ user }) {
                         />
                     </div>
 
+                    {/* Macro Distribution Summary Card */}
+                    <div className="card" style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "16px", padding: "16px 22px" }}>
+                        <div>
+                            <h4 style={{ margin: "0 0 4px", fontSize: "15px" }}>Macro Energy Distribution ({report.period})</h4>
+                            <span style={{ fontSize: "13px", color: "#64748b" }}>
+                                Period averages: {report.avgDailyProtein}g protein &bull; {report.avgDailyCarbs}g carbs &bull; {report.avgDailyFats}g fats
+                            </span>
+                        </div>
+                        <div style={{ display: "flex", gap: "10px" }}>
+                            <span className="badge badge-green">💪 Protein: {report.proteinPct || 0}%</span>
+                            <span className="badge badge-blue">🍚 Carbs: {report.carbsPct || 0}%</span>
+                            <span className="badge badge-amber">🥑 Fats: {report.fatsPct || 0}%</span>
+                        </div>
+                    </div>
+
+                    {/* Daily Calorie Intake vs Burn Trend Visualization */}
+                    <div className="card">
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                            <div>
+                                <h3 style={{ margin: "0 0 4px" }}>Daily Intake vs Target Trend</h3>
+                                <span style={{ fontSize: "13px", color: "#64748b" }}>
+                                    Visual tracking of daily intake across the {report.days}-day period
+                                </span>
+                            </div>
+                            <div style={{ display: "flex", gap: "12px", fontSize: "12px" }}>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#10b981" }}></span> Target Met
+                                </span>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#ef4444" }}></span> Over Budget
+                                </span>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: "#e2e8f0" }}></span> Under
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Interactive mini bar chart */}
+                        <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", height: "140px", padding: "10px 0 20px", borderBottom: "1px solid #f1f5f9", overflowX: "auto" }}>
+                            {report.dailyBreakdown.map((row) => {
+                                const maxCal = Math.max(report.targetDailyCalories * 1.3, ...report.dailyBreakdown.map((r) => r.calories));
+                                const heightPct = maxCal > 0 ? Math.min(100, Math.max(8, Math.round((row.calories / maxCal) * 100))) : 8;
+                                const isOver = row.calories > row.targetCalories;
+                                const isMet = Math.abs(row.calories - row.targetCalories) <= 250 && row.calories > 0;
+                                const barColor = isOver ? "#ef4444" : isMet ? "#10b981" : row.calories > 0 ? "#3b82f6" : "#cbd5e1";
+
+                                return (
+                                    <div
+                                        key={row.date}
+                                        style={{
+                                            flex: "1",
+                                            minWidth: "28px",
+                                            display: "flex",
+                                            flexDirection: "column",
+                                            alignItems: "center",
+                                            height: "100%",
+                                            justifyContent: "flex-end"
+                                        }}
+                                        title={`${row.date} (${row.dayOfWeek}): ${row.calories} kcal of ${row.targetCalories} target`}
+                                    >
+                                        <span style={{ fontSize: "10px", color: "#64748b", marginBottom: "4px", fontWeight: "600" }}>
+                                            {row.calories > 0 ? row.calories : "-"}
+                                        </span>
+                                        <div
+                                            style={{
+                                                width: "100%",
+                                                maxWidth: "24px",
+                                                height: `${heightPct}%`,
+                                                background: barColor,
+                                                borderRadius: "6px 6px 0 0",
+                                                transition: "height 0.3s ease"
+                                            }}
+                                        ></div>
+                                        <span style={{ fontSize: "10px", color: "#94a3b8", marginTop: "6px" }}>
+                                            {row.dayOfWeek}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                     {/* Daily Breakdown Table */}
                     <div className="card">
-                        <h3 style={{ margin: "0 0 4px" }}>
-                            {days === 7 ? "Weekly" : "Monthly"} Daily Breakdown
-                        </h3>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <h3 style={{ margin: 0 }}>
+                                {report.period} Detailed Daily Log
+                            </h3>
+                            <span style={{ fontSize: "13px", color: "#64748b" }}>
+                                From <b>{report.from}</b> to <b>{report.to}</b>
+                            </span>
+                        </div>
                         <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: "14px" }}>
-                            Daily calories, burned energy, net balance, and macronutrient intake.
+                            Comprehensive view of daily calorie intake, metabolic burn, net balance, and macros.
                         </p>
 
                         <div className="table-container">
@@ -981,6 +1158,8 @@ function Reports({ user }) {
                                         <th>Burned</th>
                                         <th>Net Balance</th>
                                         <th>Protein</th>
+                                        <th>Carbs</th>
+                                        <th>Fat</th>
                                         <th>Status</th>
                                     </tr>
                                 </thead>
@@ -997,6 +1176,8 @@ function Reports({ user }) {
                                                 {row.netCalories > 0 ? `+${row.netCalories}` : row.netCalories} kcal
                                             </td>
                                             <td>{row.protein}g</td>
+                                            <td>{row.carbohydrates || 0}g</td>
+                                            <td>{row.fats || 0}g</td>
                                             <td>
                                                 {row.mealsCount === 0 ? (
                                                     <span className="badge badge-gray">No logs</span>
@@ -1015,7 +1196,7 @@ function Reports({ user }) {
                         </div>
                     </div>
                 </>
-            )}
+            ) : null}
         </section>
     );
 }
